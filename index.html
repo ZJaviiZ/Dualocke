@@ -41,21 +41,56 @@ main{max-width:1400px;margin:auto;padding:10px 16px 40px;display:grid;grid-templ
 details summary{cursor:pointer;color:var(--mut);font-size:13px;text-transform:uppercase;letter-spacing:.06em}
 details[open] summary{margin-bottom:10px}
 .empty{color:var(--mut);font-style:italic}
+.mon{cursor:pointer}.mon:hover{outline:1px solid var(--acc)}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:9}
+#ov.show{display:flex}
+#md{background:var(--card);border:1px solid var(--line);border-radius:14px;max-width:460px;width:100%;max-height:92vh;overflow:auto;padding:18px;position:relative}
+#md .x{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--mut);font-size:24px;cursor:pointer}
+#md .top{display:flex;gap:14px;align-items:center}
+#md .top img{width:112px;height:112px;image-rendering:pixelated;flex:none}
+#md h3{margin:0;font-size:20px}
+#md dl{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;margin:14px 0 0}
+#md dt{color:var(--mut);font-size:13px}#md dd{margin:0}
+#md table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px;text-align:center}
+#md th{color:var(--mut);font-weight:500}#md td,#md th{padding:3px}
+.badge{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;margin:4px 4px 0 0;background:var(--card2)}
+.badge.bad{background:var(--bad);color:#fff}.badge.ok{background:var(--ok);color:#fff}
 </style>
 </head>
 <body>
 <header><h1>Dualocke Tracker</h1><span class="mut" id="gen"></span></header>
 <main id="app"><div class="card empty">Cargando…</div></main>
+<div id="ov"><div id="md"></div></div>
 <script>
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const when=t=>t?new Date(t).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
-const sprite=m=>m.isEgg?'':`<img loading="lazy" alt="" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${m.species}.png" onerror="this.style.visibility='hidden'">`;
+const sprite=m=>m.isEgg?'':`<img loading="lazy" alt="" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${m.sprite||m.species}.png" onerror="if(!this.dataset.f&&${m.sprite&&m.sprite!==m.species?1:0}){this.dataset.f=1;this.src=this.src.replace(/\d+\.png$/,'${m.species}.png')}else this.style.visibility='hidden'">`;
 function tip(m){return [m.name+(m.form?` (forma ${m.form})`:''),m.nature&&'Naturaleza '+m.nature,m.ability,m.itemName&&'Objeto: '+m.itemName,(m.moves||[]).join(' / '),`Obtenido a nv. ${m.metLvl} en zona #${m.metLoc} (${m.metDate})`,'EO: '+m.ot].filter(Boolean).join('\n');}
+const MONS=[];
+function detail(i){
+  const m=MONS[i];if(!m)return;
+  const st=m.status==='dead'?'<span class="badge bad">Muerto</span>':m.status==='gone'?'<span class="badge bad">Fuera de la partida</span>':'<span class="badge ok">Vivo</span>';
+  const where=m.where==='party'?'En el equipo':m.where==='box'?`PC, caja ${m.box}`:'—';
+  const row=(k,v)=>v?`<dt>${k}</dt><dd>${esc(v)}</dd>`:'';
+  const L=['PS','Atq','Def','At. Esp','Def. Esp','Vel'];
+  document.getElementById('md').innerHTML=`<button class="x" onclick="closeMd()" aria-label="Cerrar">×</button>
+  <div class="top">${sprite(m)}<div><h3>${esc(m.nick||m.name)}</h3><div class="mut">${esc(m.name)} · Nv. ${m.level??'?'}${m.levelExact?'':'~'}</div>
+  <div>${(m.types||[]).map(t=>`<span class="badge">${esc(t)}</span>`).join('')}${st}</div></div></div>
+  <dl>${row('Dónde está',where)}${m.where==='party'&&m.maxHp?row('PS',m.hp+' / '+m.maxHp):''}${row('Habilidad',m.ability)}${row('Naturaleza',m.nature)}${row('Objeto',m.itemName||'Ninguno')}
+  ${row('Movimientos',(m.moves||[]).join(', '))}${row('Capturado en',(m.metLocName||'Zona #'+m.metLoc)+', a nivel '+m.metLvl)}${row('Fecha de captura',m.metDate)}${row('Ball',m.ball)}${row('Entrenador original',m.ot)}
+  ${row('Visto por primera vez',when(m.firstSeen))}${m.diedAt?row('Murió',when(m.diedAt)+(m.deathLevel?' (nivel '+m.deathLevel+')':'')):''}${m.goneAt&&m.status==='gone'?row('Desapareció',when(m.goneAt)):''}</dl>
+  ${m.ivs?`<table><tr><th></th>${L.map(x=>`<th>${x}</th>`).join('')}</tr><tr><th>IV</th>${m.ivs.map(x=>`<td>${x}</td>`).join('')}</tr><tr><th>EV</th>${m.evs.map(x=>`<td>${x}</td>`).join('')}</tr></table>`:''}`;
+  document.getElementById('ov').classList.add('show');
+}
+function closeMd(){document.getElementById('ov').classList.remove('show');}
+document.getElementById('ov').addEventListener('click',e=>{if(e.target.id==='ov')closeMd();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMd();});
 function mon(m,dead){
+  const i=MONS.push(m)-1;
   const title=m.nick&&m.nick!==m.name?m.nick:m.name;
   const sub=[m.nick&&m.nick!==m.name?m.name:null,'Nv. '+(m.level??'?')+(m.levelExact?'':'~')].filter(Boolean).join(' · ');
   const hp=m.where==='party'&&m.maxHp?`<div class="hp"><i style="width:${Math.round(100*m.hp/m.maxHp)}%"></i></div>`:'';
-  return `<div class="mon ${dead||m.status==='dead'?'dead':''}" title="${esc(tip(m))}">${sprite(m)}<div><div class="n">${esc(title)}${m.status==='dead'?' ✝':''}</div><div class="s">${esc(sub)}</div>${hp}</div></div>`;
+  return `<div class="mon ${dead||m.status==='dead'?'dead':''}" onclick="detail(${i})">${sprite(m)}<div><div class="n">${esc(title)}${m.status==='dead'?' ✝':''}</div><div class="s">${esc(sub)}</div>${hp}</div></div>`;
 }
 function player(d){
   const sec=(title,items,cls,open)=>`<details class="card" ${open?'open':''}><summary>${title} (${items.length})</summary>${items.length?`<div class="${cls}">${items.join('')}</div>`:'<div class="empty">Nada por aquí.</div>'}</details>`;
@@ -79,7 +114,8 @@ async function load(){
     if(!idx.players.length){app.innerHTML='<div class="card empty">Todavía no se ha subido ninguna partida. Abrid la app del tracker y guardad en el juego.</div>';return;}
     const ds=await Promise.all(idx.players.map(p=>fetch('data/'+encodeURIComponent(p)+'.json?'+Date.now()).then(r=>r.json())));
     const open=[...document.querySelectorAll('details')].map(x=>x.open);
-    app.innerHTML=ds.map(player).join('');
+    if(document.getElementById('ov').classList.contains('show'))return; // no refrescar con una ficha abierta
+    MONS.length=0;app.innerHTML=ds.map(player).join('');
     if(open.length)document.querySelectorAll('details').forEach((x,i)=>{if(i in open)x.open=open[i];});
     document.getElementById('gen').textContent='Actualizado: '+when(idx.generated);
   }catch(e){app.innerHTML='<div class="card empty">No se han podido cargar los datos todavía.</div>';}
