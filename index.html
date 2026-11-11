@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dualocke Tracker</title>
+<style>
+:root{--bg:#12141a;--card:#1c1f28;--card2:#252936;--text:#e8eaf0;--mut:#9099ab;--line:#30364a;--ok:#4ecb8f;--bad:#f0616d;--warn:#f2b84b;--acc:#6ea8ff}
+@media (prefers-color-scheme:light){:root{--bg:#f3f4f7;--card:#fff;--card2:#eef0f5;--text:#1b1e27;--mut:#636b7c;--line:#d9dde6;--ok:#1f9d63;--bad:#d23a48;--warn:#b57a06;--acc:#2f6fde}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+header{padding:18px 16px 6px;max-width:1400px;margin:auto;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+h1{margin:0;font-size:22px}
+.mut{color:var(--mut);font-size:13px}
+main{max-width:1400px;margin:auto;padding:10px 16px 40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.col{min-width:0;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card h2{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+.who{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.who b{font-size:20px}
+.stats{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px}
+.stats div{font-size:13px;color:var(--mut)}.stats strong{display:block;font-size:17px;color:var(--text)}
+.party{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.mon{background:var(--card2);border-radius:10px;padding:8px;display:flex;gap:8px;align-items:center;min-width:0;cursor:default}
+.mon img{width:56px;height:56px;image-rendering:pixelated;flex:none}
+.mon .n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mon .s{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mon>div{min-width:0;flex:1}
+.hp{height:5px;border-radius:3px;background:var(--line);margin-top:4px;overflow:hidden}.hp i{display:block;height:100%;background:var(--ok)}
+.dead{opacity:.75}.dead img{filter:grayscale(1)}.dead .hp i{background:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px}
+.grid .mon{padding:5px}.grid .mon img{width:40px;height:40px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:var(--card2);border-radius:99px;padding:3px 10px;font-size:13px}
+.chip.off{opacity:.4}.chip.on{outline:1px solid var(--ok)}
+.alert{border-left:3px solid var(--warn);background:var(--card2);padding:8px 10px;border-radius:6px;margin-bottom:6px}
+.ev{display:flex;gap:10px;padding:7px 0;border-top:1px solid var(--line)}.ev:first-child{border-top:0}
+.ev .tag{flex:none;width:8px;height:8px;border-radius:50%;margin-top:7px;background:var(--acc)}
+.ev.death .tag,.ev.gone .tag{background:var(--bad)}.ev.z .tag,.ev.stamp .tag{background:var(--warn)}.ev.catch .tag{background:var(--ok)}
+.scroll{max-height:420px;overflow:auto}
+details summary{cursor:pointer;color:var(--mut);font-size:13px;text-transform:uppercase;letter-spacing:.06em}
+details[open] summary{margin-bottom:10px}
+.empty{color:var(--mut);font-style:italic}
+</style>
+</head>
+<body>
+<header><h1>Dualocke Tracker</h1><span class="mut" id="gen"></span></header>
+<main id="app"><div class="card empty">Cargando…</div></main>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const when=t=>t?new Date(t).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+const sprite=m=>m.isEgg?'':`<img loading="lazy" alt="" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${m.species}.png" onerror="this.style.visibility='hidden'">`;
+function tip(m){return [m.name+(m.form?` (forma ${m.form})`:''),m.nature&&'Naturaleza '+m.nature,m.ability,m.itemName&&'Objeto: '+m.itemName,(m.moves||[]).join(' / '),`Obtenido a nv. ${m.metLvl} en zona #${m.metLoc} (${m.metDate})`,'EO: '+m.ot].filter(Boolean).join('\n');}
+function mon(m,dead){
+  const title=m.nick&&m.nick!==m.name?m.nick:m.name;
+  const sub=[m.nick&&m.nick!==m.name?m.name:null,'Nv. '+(m.level??'?')+(m.levelExact?'':'~')].filter(Boolean).join(' · ');
+  const hp=m.where==='party'&&m.maxHp?`<div class="hp"><i style="width:${Math.round(100*m.hp/m.maxHp)}%"></i></div>`:'';
+  return `<div class="mon ${dead||m.status==='dead'?'dead':''}" title="${esc(tip(m))}">${sprite(m)}<div><div class="n">${esc(title)}${m.status==='dead'?' ✝':''}</div><div class="s">${esc(sub)}</div>${hp}</div></div>`;
+}
+function player(d){
+  const sec=(title,items,cls,open)=>`<details class="card" ${open?'open':''}><summary>${title} (${items.length})</summary>${items.length?`<div class="${cls}">${items.join('')}</div>`:'<div class="empty">Nada por aquí.</div>'}</details>`;
+  return `<div class="col">
+  <div class="card"><div class="who"><b>${esc(d.player)}</b><span class="mut">Último guardado: ${when(d.lastSave)}</span></div>
+    <div class="stats"><div><strong>${esc(d.playtime)}</strong>tiempo de juego</div><div><strong>${d.z.length}</strong>cristales Z</div><div><strong>${d.dead.length+d.lost.length}</strong>bajas</div><div><strong>${d.saveCount}</strong>guardados</div><div><strong>${d.money.toLocaleString('es-ES')}</strong>dinero</div></div></div>
+  ${d.alerts.length?`<div class="card"><h2>Avisos (${d.alerts.length})</h2><div class="scroll">${d.alerts.map(a=>`<div class="alert">${esc(a.text)}<div class="mut">${when(a.t)} · ${esc(a.pt||'')}</div></div>`).join('')}</div></div>`:''}
+  <div class="card"><h2>Equipo</h2><div class="party">${d.party.map(m=>mon(m)).join('')||'<div class="empty">Sin equipo.</div>'}</div></div>
+  <div class="card"><h2>Progreso</h2><div class="chips"><span class="chip on">${d.stamps} sellos en el pasaporte</span></div>
+    <div class="chips" style="margin-top:10px">${d.z.map(z=>`<span class="chip">${esc(z)}</span>`).join('')||'<span class="empty">Sin cristales Z.</span>'}</div></div>
+  ${sec('Cementerio',d.dead.map(m=>mon(m,true)),'grid',true)}
+  ${sec('Perdidos (liberados o intercambiados)',d.lost.map(m=>mon(m,true)),'grid',false)}
+  ${sec('PC',d.boxes.map(m=>mon(m)),'grid',false)}
+  <div class="card"><h2>Historial</h2><div class="scroll">${d.events.map(e=>`<div class="ev ${e.type}"><span class="tag"></span><div>${esc(e.text)}<div class="mut">${when(e.t)} · ${esc(e.pt||'')}</div></div></div>`).join('')}</div></div>
+  </div>`;
+}
+async function load(){
+  const app=document.getElementById('app');
+  try{
+    const idx=await (await fetch('data/index.json?'+Date.now())).json();
+    if(!idx.players.length){app.innerHTML='<div class="card empty">Todavía no se ha subido ninguna partida. Abrid la app del tracker y guardad en el juego.</div>';return;}
+    const ds=await Promise.all(idx.players.map(p=>fetch('data/'+encodeURIComponent(p)+'.json?'+Date.now()).then(r=>r.json())));
+    const open=[...document.querySelectorAll('details')].map(x=>x.open);
+    app.innerHTML=ds.map(player).join('');
+    if(open.length)document.querySelectorAll('details').forEach((x,i)=>{if(i in open)x.open=open[i];});
+    document.getElementById('gen').textContent='Actualizado: '+when(idx.generated);
+  }catch(e){app.innerHTML='<div class="card empty">No se han podido cargar los datos todavía.</div>';}
+}
+load();setInterval(load,60000);
+</script>
+</body>
+</html>
