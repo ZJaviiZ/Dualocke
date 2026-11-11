@@ -12,9 +12,12 @@ function nameTable(text) { // id,lang,name,...
   for (const r of csvRows(text)) { if (r[1] === '7') es[r[0]] = r[2]; else if (r[1] === '9') en[r[0]] = r[2]; }
   return Object.assign(en, es);
 }
-async function get(file) { const r = await fetch(CSV + file); if (!r.ok) throw new Error(file + ' ' + r.status); return r.text(); }
+async function get(file) {
+  if (process.env.CSV_DIR) return fs.readFileSync(path.join(process.env.CSV_DIR, file), 'utf8'); // para pruebas en local
+  const r = await fetch(CSV + file); if (!r.ok) throw new Error(file + ' ' + r.status); return r.text();
+}
 async function loadNames() {
-  const N = { species: {}, moves: {}, abilities: {}, items: {}, natures: {} };
+  const N = { species: {}, moves: {}, abilities: {}, items: {}, forms: {}, types: {}, growth: {}, locations: {} };
   const safe = async (k, fn) => { try { N[k] = await fn(); } catch (e) { console.log('Sin nombres de', k, '-', e.message); } };
   await Promise.all([
     safe('species', async () => nameTable(await get('pokemon_species_names.csv'))),
@@ -23,6 +26,34 @@ async function loadNames() {
     safe('items', async () => {
       const names = nameTable(await get('item_names.csv')), out = {};
       for (const r of csvRows(await get('item_game_indices.csv'))) if (r[1] === '7' && names[r[0]]) out[r[2]] = names[r[0]];
+      return out;
+    }),
+    // formas (regionales, megas...): especie -> lista ordenada como en el juego [{ pid, name }]
+    safe('forms', async () => {
+      const spOf = {}; for (const r of csvRows(await get('pokemon.csv'))) spOf[r[0]] = r[2];
+      const fes = {}, fen = {};
+      for (const r of csvRows(await get('pokemon_form_names.csv'))) { const v = { form: r[2], full: r[3] }; if (r[1] === '7') fes[r[0]] = v; else if (r[1] === '9') fen[r[0]] = v; }
+      const out = {};
+      for (const r of csvRows(await get('pokemon_forms.csv'))) {
+        const sp = spOf[r[3]]; if (!sp) continue;
+        (out[sp] = out[sp] || []).push({ pid: +r[3], order: +r[8], ...(fes[r[0]] || fen[r[0]] || {}) });
+      }
+      for (const k in out) out[k].sort((a, b) => a.order - b.order);
+      return out;
+    }),
+    safe('types', async () => {
+      const names = nameTable(await get('type_names.csv')), out = {};
+      for (const r of csvRows(await get('pokemon_types.csv'))) (out[r[0]] = out[r[0]] || [])[+r[2] - 1] = names[r[1]] || r[1];
+      return out;
+    }),
+    safe('growth', async () => {
+      const map = { 1: 'slow', 2: 'mediumFast', 3: 'fast', 4: 'mediumSlow', 5: 'erratic', 6: 'fluctuating' }, out = {};
+      for (const r of csvRows(await get('pokemon_species.csv'))) if (map[r[14]]) out[r[0]] = map[r[14]];
+      return out;
+    }),
+    safe('locations', async () => {
+      const names = nameTable(await get('location_names.csv')), out = {};
+      for (const r of csvRows(await get('location_game_indices.csv'))) if (r[1] === '7' && names[r[0]]) out[r[2]] = names[r[0]];
       return out;
     }),
   ]);
@@ -46,8 +77,10 @@ function learnCurve(species, exp, level) {
   const ok = cur.filter(c => levelFor(c, exp) === level);
   if (ok.length) speciesCurves[species] = ok;
 }
-function guessLevel(species, exp) {
-  const levels = [...new Set((speciesCurves[species] || Object.keys(CURVES)).map(c => levelFor(c, exp)))];
+function guessLevel(species, exp, official) {
+  const learned = speciesCurves[species];
+  const cands = learned && learned.length === 1 ? learned : official && (!learned || learned.includes(official)) ? [official] : (learned || Object.keys(CURVES));
+  const levels = [...new Set(cands.map(c => levelFor(c, exp)))];
   return { level: Math.round(levels.reduce((a, b) => a + b, 0) / levels.length), exact: levels.length === 1 };
 }
 
@@ -62,7 +95,10 @@ function processPlayer(player, N) {
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.sav') && tsFromFile(f)).sort();
   const mons = new Map(), events = [], alerts = [];
   let prev = null, last = null, zPrev = null, saveCount = 0;
-  const spName = p => p.isEgg ? 'Huevo' : (N.species[p.species] || `#${p.species}`);
+  const formOf = p => (p.form && N.forms[p.species] && N.forms[p.species][p.form]) || null;
+  const spName = p => { if (p.isEgg) return 'Huevo'; const base = N.species[p.species] || `#${p.species}`, f = formOf(p);
+    return f ? (f.full || (f.form ? `${base} (${f.form})` : base)) : p.form ? `${base} (forma ${p.form})` : base; };
+  const BALLS = { 1: 'Master Ball', 2: 'Ultra Ball', 3: 'Super Ball', 4: 'Poké Ball', 5: 'Safari Ball', 6: 'Malla Ball', 7: 'Buceo Ball', 8: 'Nido Ball', 9: 'Acopio Ball', 10: 'Turno Ball', 11: 'Lujo Ball', 12: 'Honor Ball', 13: 'Ocaso Ball', 14: 'Sana Ball', 15: 'Veloz Ball', 16: 'Gloria Ball', 26: 'Ente Ball' };
   const label = m => m.nick && m.nick !== m.name ? `${m.nick} (${m.name})` : m.name;
   for (const f of files) {
     const t = tsFromFile(f); let s;
@@ -92,11 +128,13 @@ function processPlayer(player, N) {
       Object.assign(m, { species: p.species, form: p.form, name, nick: p.nick, isEgg: p.isEgg, exp: p.exp, where: p.where, box: p.box || null, slot: p.slot,
         item: p.item, itemName: p.item ? (N.items[p.item] || `Objeto #${p.item}`) : null, nature: NATURES[p.nature] || null,
         ability: N.abilities[p.ability] || `Habilidad #${p.ability}`, moves: p.moves.filter(Boolean).map(x => N.moves[x] || `Mov. #${x}`),
-        ot: p.ot, metLoc: p.metLoc, metLvl: p.metLvl, metDate: p.metDate, ball: p.ball, lastSeen: t });
+        ot: p.ot, metLoc: p.metLoc, metLocName: N.locations[p.metLoc] || null, metLvl: p.metLvl, metDate: p.metDate, ball: BALLS[p.ball] || `Ball #${p.ball}`, lastSeen: t,
+        sprite: (formOf(p) || {}).pid || p.species, types: N.types[(formOf(p) || {}).pid || p.species] || [], ivs: p.ivs, evs: p.evs });
+      if (p.where !== 'party') { delete m.hp; delete m.maxHp; }
       if (p.level) { m.level = p.level; m.levelExact = true; m.hp = p.hp; m.maxHp = p.maxHp; }
       mons.set(key, m);
       if (!old) {
-        if (!first) ev('catch', `Nuevo Pokémon: ${label(m)}, obtenido a nivel ${p.metLvl} (zona #${p.metLoc}).`, key);
+        if (!first) ev('catch', `Nuevo Pokémon: ${label(m)}, obtenido a nivel ${p.metLvl} en ${m.metLocName || 'zona #' + p.metLoc}.`, key);
         if (!p.isEgg && (p.tid !== s.trainer.tid || p.ot !== s.trainer.name)) al(`${label(m)} no pertenece a este entrenador (EO: ${p.ot}): intercambiado o introducido desde fuera.`);
         if (!p.valid) al(`${label(m)} tiene datos corruptos o manipulados.`);
       } else {
@@ -129,7 +167,7 @@ function processPlayer(player, N) {
   }
   if (!prev) return null;
   const all = [...mons.values()];
-  for (const m of all) if (!m.levelExact) { const g = guessLevel(m.species, m.exp); m.level = g.level; m.levelExact = g.exact; }
+  for (const m of all) if (!m.levelExact) { const g = guessLevel(m.species, m.exp, N.growth[m.species]); m.level = g.level; m.levelExact = g.exact; }
   const pub = m => { const { exp, baseline, prevStatus, ...r } = m; return r; };
   return {
     player, trainer: prev.trainer, playtime: fmtPT(prev.playtime), money: prev.money, lastSave: last, saveCount,

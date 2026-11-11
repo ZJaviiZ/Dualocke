@@ -30,7 +30,7 @@ function pk(raw){
   const iv=d.readUInt32LE(0x74);
   const p={species,form:d[0x1D]>>3,nick:str(d,0x40,12),item:d.readUInt16LE(0x0A),exp:d.readUInt32LE(0x10),
     ec:d.readUInt32LE(0).toString(16),pid:d.readUInt32LE(0x18).toString(16),nature:d[0x1C],ability:d[0x14],
-    moves:[0x5A,0x5C,0x5E,0x60].map(o=>d.readUInt16LE(o)),isEgg:!!((iv>>>30)&1),
+    moves:[0x5A,0x5C,0x5E,0x60].map(o=>d.readUInt16LE(o)),ivs:[0,5,10,20,25,15].map(b=>(iv>>>b)&31),evs:[0x1E,0x1F,0x20,0x22,0x23,0x21].map(o=>d[o]),isEgg:!!((iv>>>30)&1),
     ot:str(d,0xB0,12),tid:d.readUInt16LE(0x0C),metLoc:d.readUInt16LE(0xDA),metLvl:d[0xDD]&0x7F,ball:d[0xDC],
     metDate:`20${String(d[0xD4]).padStart(2,'0')}-${d[0xD5]}-${d[0xD6]}`,valid:sum===d.readUInt16LE(6)};
   if(d.length>232){p.level=d[0xEC];p.hp=d.readUInt16LE(0xF0);p.maxHp=d.readUInt16LE(0xF2);p.status=d[0xE8];}
